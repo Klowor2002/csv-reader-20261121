@@ -101,11 +101,13 @@ export function run(input) {
     pos = n;
   }
 
-  // Reads a quoted field whose opening quote is at pos. Sets F.
+  // Reads a quoted field whose opening quote is at pos. Sets F. The value is gathered as parts and joined once
+  // when the field closes, not built up a stretch at a time: a quoted field with many doubled quotes or line
+  // breaks (the generator's notes and phrases) would otherwise grow a chain of intermediate strings.
   function readQuoted() {
     const open = pos;
     const openLine = line;
-    let value = '';
+    const parts = [];
     pos += 1;
     let seg = pos;
     scan.lastIndex = pos;
@@ -117,26 +119,26 @@ export function run(input) {
       if (c === '"') {
         if (text.charCodeAt(i + 1) === 34) {
           // A doubled quote is one quote; the pair is consumed whole.
-          value += text.slice(seg, i) + '"';
+          parts.push(text.slice(seg, i), '"');
           seg = i + 2;
           scan.lastIndex = seg;
           continue;
         }
-        value += text.slice(seg, i);
+        parts.push(text.slice(seg, i));
         pos = i + 1;
         closed = true;
         break;
       }
       if (c === '\r') {
         // CRLF and a lone CR inside quotes are each one LF.
-        value += text.slice(seg, i) + '\n';
+        parts.push(text.slice(seg, i), '\n');
         line += 1;
         seg = text.charCodeAt(i + 1) === 10 ? i + 2 : i + 1;
         scan.lastIndex = seg;
         continue;
       }
       if (c === '\n') {
-        value += text.slice(seg, i) + '\n';
+        parts.push(text.slice(seg, i), '\n');
         line += 1;
         seg = i + 1;
         continue;
@@ -144,13 +146,15 @@ export function run(input) {
       // A comma inside quotes is a literal character: the stretch stays open.
     }
     if (!closed) {
-      // The quote never closes: it is a literal character, and the text after it is read again as unquoted.
+      // The quote never closes: it is a literal character, and the text after it is read again as unquoted
+      // (the parts gathered above are discarded, exactly as the reference discards its reading).
       pos = open + 1;
       line = openLine;
       errors.push({ code: 'unterminated_quote', line: recordLine, row: recordRow });
       readUnquoted('"');
       return;
     }
+    const value = parts.length === 1 ? parts[0] : parts.join('');
     if (pos >= n) {
       F.value = value;
       F.ended = END;
